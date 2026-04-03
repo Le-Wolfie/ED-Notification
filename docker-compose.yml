@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  # RabbitMQ message broker
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: eventnotify-rabbitmq
+
+    # Ports
+    ports:
+      - "5672:5672" # AMQP protocol (client connections)
+      - "15672:15672" # Management UI
+
+    # Environment variables
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+
+    # Volumes (persist data)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+    # Resource limits
+    mem_limit: 512m
+
+    # Restart policy
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
+    driver: local
+
+networks:
+  default:
+    name: eventnotify-network
