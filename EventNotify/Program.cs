@@ -1,7 +1,6 @@
 using EventNotify.Data;
 using EventNotify.EventBus;
 using EventNotify.EventQueue;
-using EventNotify.EventQueue.DependencyInjection;
 using EventNotify.EventQueue.RabbitMQ;
 using EventNotify.Events;
 using EventNotify.Handlers;
@@ -23,25 +22,24 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(connectionString));
 
-// Event Queue and Bus Configuration (choose provider: InMemory or RabbitMQ)
-var queueProvider = builder.Configuration.GetValue("EventQueueProvider", "InMemory");
+// RabbitMQ Configuration
+var rabbitMqSettings = builder.Configuration.GetSection("RabbitMQ").Get<RabbitMQSettings>()
+    ?? new RabbitMQSettings();
 
-if (queueProvider.Equals("RabbitMQ", StringComparison.OrdinalIgnoreCase))
-{
-    builder.Services.AddRabbitMQEventQueue(builder.Configuration);
-}
-else
-{
-    builder.Services.AddInMemoryEventQueue();
-}
+builder.Services.AddSingleton(rabbitMqSettings);
+builder.Services.AddSingleton<RabbitMQConnectionFactory>();
+builder.Services.AddSingleton<IEventQueue, RabbitMQEventQueue>();
 
-// Register the actual event bus used for handler execution (by background service)
+// Event Bus Architecture:
+// 1. InMemoryEventBus: Executes handlers in parallel (scoped per request/event)
+// 2. QueuedEventBus: Wraps IEventQueue for fire-and-forget from services
 builder.Services.AddScoped<InMemoryEventBus>();
-
-// Register the queueing event bus used by services (returns immediately)
 builder.Services.AddScoped<IEventBus, QueuedEventBus>();
 
-// Register background service that processes queued events
+// Background Service: Continuously processes queued events
+// - Dequeues from RabbitMQ
+// - Dispatches to InMemoryEventBus
+// - Executes all handlers for each event asynchronously
 builder.Services.AddHostedService<EventProcessorHostedService>();
 
 // Register all event handlers for UserCreatedEvent
@@ -72,11 +70,8 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Log which event queue provider is being used
-var providerLog = queueProvider.Equals("RabbitMQ", StringComparison.OrdinalIgnoreCase)
-    ? "🐰 RabbitMQ event queue provider registered"
-    : "💾 In-Memory event queue provider registered";
-app.Logger.LogInformation(providerLog);
+// Log startup
+app.Logger.LogInformation("🐰 RabbitMQ event queue provider initialized");
 
 // Initialize database (EnsureCreated creates DB if not exists)
 using (var scope = app.Services.CreateScope())
